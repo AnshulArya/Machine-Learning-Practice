@@ -1,0 +1,753 @@
+---
+title: "Mith"
+author: "Anshul Arya"
+date: "September 1, 2018"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+**NOTE** Clear the environment
+
+```{r}
+
+rm(list = ls(all=TRUE))
+
+```
+## Goal
+* Based on the various details of patient, whether a patient will readmit within 30 Days.
+
+## Agenda 
+
+* Get the data
+
+* Data Pre-processing
+
+* Build a model
+
+* Predictions
+
+* Communication
+
+
+## Reading & Understanding the Data
+###Read the Data
+
+
+
+```{r}
+# Make sure the dataset is located in your current working directory, or else you can change your working directory using the "setwd()" function.
+
+Patientdata <- read.csv("Patientdata.csv",header = T,na.strings = c(""," ","?","NA"))
+Hospitaldata<-read.csv("Hospitaldata.csv",header = T,na.strings = c(""," ","?","NA"))
+Diagnosisdata<-read.csv("Diagnosisdata.csv",header = T,na.strings = c(""," ","?","NA"))
+
+```
+
+
+### Data Description
+
+PatientId     	 = Patient Id
+num_procedures   = number of medical procedures performed during this hospitalisation(numerical)
+num_medications	 = number of different medications administered to the patient(number)
+number_diagnoses = total number of diagnoses for this patient, including past diagnoses(number)
+max_glu_serum	   = results of glucose tolerance test
+A1Cresult	       = measures what percentage of your hemoglobin - a protein in red blood cells that carries                                    oxygen - is coated with sugar (glycated)
+metformin	       = drug used to treat type 2 diabetes
+repaglinide	     = an antidiabetic drug in the class of medications known as meglitinides
+nateglinide	     = an oral drug used to lower blood sugar (glucose) levels in type 2 diabetes. It is in a class                               of drugs called meglitinides
+chlorpropamide	 = an oral diabetes medicine that helps control blood sugar levels. This medication helps your                                pancreas produce insulin
+glimepiride	     = medium- to long-acting sulfonylurea antidiabetic drug
+acetohexamide    = a first-generation sulfonylurea medication used to treat diabetes mellitus type 2, particularly in                         people whose diabetes cannot be controlled by diet alone
+glipizide        = an oral diabetes medicine that helps control blood sugar levels by helping your pancreas produce insulin
+glyburide	       = an oral diabetes medicine that helps control blood sugar levels in a class of medications known as                         sulfonylureas
+tolbutamide	     = a first-generation potassium channel blocker, sulfonylurea oral hypoglycemic drug
+pioglitazone	   = a prescription drug of the thiazolidinedione (TZD) class with hypoglycemic (antihyperglycemic,                             antidiabetic) action to treat diabetes
+rosiglitazone    =	an antidiabetic drug in the thiazolidinedione class of drugs. It works as an insulin sensitizer
+acarbose	       = slows the digestion of carbohydrates in the body, which helps control blood sugar levels
+miglitol	       = an oral anti-diabetic drug that acts by inhibiting the ability of the patient to break down complex                        carbohydrates into glucose
+troglitazone	   = an antidiabetic and anti-inflammatory drug, and a member of the drug class of the thiazolidinediones
+tolazamide	     = an oral blood glucose lowering drug used for people with Type 2 diabetes. It is part of the sulfonylurea                    family
+insulin	         = Insulin is a hormone that is important for metabolism and utilization of energy from the ingested                          nutrients - especially glucose.
+glyburide.metformin     = using both Glyburide and metformin
+glipizide.metformin	    = using both glipizide and metformin
+metformin.rosiglitazone	= using both metformin and rosiglitazone
+metformin.pioglitazone	= using both metformin and pioglitazone
+change	                = change in patient treatment administered
+diabetesMed	            = whether any diabetes medications are administered
+istrain	                = 1-traindata 0-testdata
+
+# Merging the data
+```{r}
+#Combining/Merging/Joining data from multiple files.
+library(data.table)
+merged_df1 = merge(Patientdata,Hospitaldata,by.x=c("patientID","istrain"),by.y = c("patientID","istrain"))
+merged_data = merge(merged_df1,Diagnosisdata,by.x=c("patientID","istrain"),by.y = c("patientID","istrain"))
+head(merged_data)
+rm(merged_df1)
+```
+```{r}
+library(dplyr)
+train <- filter(merged_data, istrain == 1) # Using filter function in dplyr package to split test and train
+test <- filter(merged_data, istrain!= 1) 
+```
+# Dropping the istrain column after ths split since it is irrelevant
+
+```{r}
+train$istrain <- NULL
+test$istrain <- NULL
+```
+
+##Structure of the data
+```{r}
+str(train)
+
+```
+
+#Summary of the data
+
+```{r}
+summary(train)
+```
+
+# First 5 rows using head() function
+# Last 10 rows of data using tail() function
+```{r}
+head(train)
+tail(train,10)
+```
+
+## Check for NA in the dataset
+```{r}
+sum(is.na(train))
+sum(is.na(test))
+```
+
+## Data Explorer using for data visualization
+```{r}
+library(DataExplorer)
+#create_report(train)
+```
+## to check Na coloumn wise
+```{r}
+colSums(is.na(train))
+colSums(is.na(test))
+```
+
+
+
+#### Feature Engineering
+
+
+
+# 1) isTrain and  AdmissionID is dropped initially    
+#    Additionaly drop Patient ID
+```{r}
+test_PID<-test$patientID
+
+train$patientID <- NULL
+test$patientID <- NULL
+
+test$Target<-NULL
+
+train$AdmissionID<-NULL
+test$AdmissionID<-NULL
+
+```
+## 2) Columns with a unique value and handling
+ acetohexamide, metformin.rosiglitazone has only one value. They can be dropped
+```{r} 
+length(unique(train$acetohexamide)) 
+length(unique(train$metformin.rosiglitazone))
+length(unique(test$acetohexamide)) 
+length(unique(test$metformin.rosiglitazone))
+
+# Columns acetohexamide and metformin.rosiglitazone has only one value, they can be dropped due to no variance
+
+train$acetohexamide <- NULL
+test$acetohexamide <- NULL
+train$metformin.rosiglitazone <- NULL
+test$metformin.rosiglitazone <- NULL
+
+#attributes which having two values but one is very high number of values but second is very less or negligible number of value so we can drop this attributes
+
+train$metformin.pioglitazone<-NULL
+train$troglitazone<-NULL
+train$glipizide.metformin<-NULL
+train$miglitol<-NULL
+train$tolazamide<-NULL
+train$tolbutamide<-NULL
+
+
+train$nateglinide<-NULL
+train$chlorpropamide<-NULL
+train$repaglinide<-NULL
+train$acarbose<-NULL
+train$glyburide.metformin<-NULL
+
+
+
+test$metformin.pioglitazone<-NULL
+test$troglitazone<-NULL
+test$glipizide.metformin<-NULL
+test$miglitol<-NULL
+test$tolazamide<-NULL
+test$tolbutamide<-NULL
+
+test$nateglinide<-NULL
+test$chlorpropamide<-NULL
+test$repaglinide<-NULL
+test$acarbose<-NULL
+test$glyburide.metformin<-NULL
+
+```
+## 3) Handling Date columns
+
+# Creation of new columns
+# Admission_date -  admission date of patient
+# Discharge_date - discharging date of patient
+```{r}
+
+train$days_admitted <- as.numeric(as.Date(as.character(train$Discharge_date), format="%Y-%m-%d")-
+                  as.Date(as.character(train$Admission_date), format="%Y-%m-%d"))
+
+test$days_admitted <- as.numeric(as.Date(as.character(test$Discharge_date), format="%Y-%m-%d")-
+                  as.Date(as.character(test$Admission_date), format="%Y-%m-%d"))
+train$Admission_date<-NULL
+train$Discharge_date<-NULL
+
+test$Admission_date<-NULL
+test$Discharge_date<-NULL
+
+train$medical_specialty<-NULL
+test$medical_specialty<-NULL
+
+train$weight<-NULL
+test$weight<-NULL
+str(train)
+
+
+```
+
+## 4) converting attributes type to appropriate attribute type
+```{r}
+
+
+train$num_procedures<-as.factor(as.numeric(train$num_procedures))
+test$num_procedures<-as.factor(as.numeric(test$num_procedures))
+
+train$num_medications<-as.numeric(train$num_medications)
+test$num_medications<-as.numeric(test$num_medications)
+
+train$num_diagnoses<-as.factor(as.numeric(train$num_diagnoses))
+test$num_diagnoses<-as.factor(as.numeric(test$num_diagnoses))
+str(train)
+
+
+
+str(test)
+```
+
+
+
+### Train Data split to train and validation
+
+```{r}
+library(caret)
+set.seed(333)
+
+train_rows <- createDataPartition(train$Target, p = 0.7,list = F) 
+
+train_dt <- train[train_rows, ]
+validation_dt <- train[-train_rows, ]
+rm(train_rows)
+```
+
+```{r}
+train_dt$num_medications= cut(train_dt$num_medications,breaks =c(1,10,20,30,40,50,60,70,80) ,include.lowest = T,right = T)
+test$num_medications= cut(test$num_medications,breaks =c(1,10,20,30,40,50,60,70,80) ,include.lowest = T,right = T)
+validation_dt$num_medications= cut(validation_dt$num_medications,breaks =c(1,10,20,30,40,50,60,70,80) ,include.lowest = T,right = T)
+```
+```{r}
+plot(train_dt$num_diagnoses)
+```
+
+```{r}
+summary(train_dt)
+```
+```{r}
+plot(train_dt$days_admitted)
+```
+
+
+#Imputation
+
+* Imputing missing values using KNN
+```{r}
+library(DMwR)
+
+# impute for train data
+train_data<- knnImputation(data = train_dt,k=5)
+sum(is.na(train_data))
+```
+```{r}
+#impute for validation data data
+validation_data<-knnImputation(data = validation_dt,distData = train_dt)
+sum(is.na(validation_data))
+
+```
+```{r}
+
+# impute for train data
+test_data <- knnImputation(data = test,k=5)
+sum(is.na(test_data))
+```
+
+# Check proprotion of target variable in train and validation dataset
+
+```{r}
+prop.table(table(train$Target))
+```
+```{r}
+prop.table(table(train_data$Target))
+```
+
+
+```{r}
+prop.table(table(validation_data$Target))
+```
+### MODEL BUILDING
+
+## Model 1
+### BASIC LOGISTIC REGRESSION MODEL (GLM)
+
+Build a basic logistic regression model
+```{r}
+log_reg <- glm(Target~., data = train_data, family = binomial) # Basic glm model
+
+summary(log_reg) # Summary of the model 
+```
+```{r}
+prob_train_glm <- predict(log_reg, type = "response")
+
+summary(prob_train_glm)
+
+#Using the ROCR package create a "prediction()" object
+library(ROCR)
+
+pred <- prediction(prob_train_glm, train_data$Target)
+
+perf_glm<- performance(pred, measure = "tpr", x.measure = "fpr") # Extracting performance measures (TPR and FPR)
+
+# Creating ROC plot to decide the tradeoff between tpr and fpr
+
+plot(perf_glm, col=rainbow(10), colorize = T, print.cutoffs.at = seq(0,1,0.05)) # PLotting ROC curve
+
+preds_trn_reg <- ifelse(prob_train_glm > 0.35, "1", "0") #choosig cut off at 0.35
+
+# create confusion matrix based on result in validation data
+train_target = train_data$Target
+
+confu_matrix_reg = table(train_target, preds_trn_reg)
+
+print(confu_matrix_reg)
+
+(specificity_trn_reg = confu_matrix_reg[1, 1]/sum(confu_matrix_reg[1, ]))
+(sensitivity_trn_reg = confu_matrix_reg[2, 2]/sum(confu_matrix_reg[2, ]))
+(accuracy_trn_reg = sum(diag(confu_matrix_reg))/sum(confu_matrix_reg))
+(precision_trn_reg = confu_matrix_reg[2, 2]/sum(confu_matrix_reg[, 2]))
+```
+
+#on validation data set
+
+```{r}
+# choose a cut-off value based on ROC curve. 
+
+# get probabilities for validation data set using the built model
+prob_val_reg <- predict(log_reg, validation_data, type = "response")
+
+prediction_glm<-prediction(prob_val_reg,validation_data$Target)
+
+# choosing a cut-off value of 0.35. observations with cut-off value greater than 0.35 is
+# classified as high-income group 
+preds_val_reg <- ifelse(prob_val_reg > 0.35, "1", "0")
+
+# create confusion matrix based on result in validation data
+validation_labs = validation_data$Target
+
+conf_matrix_reg = table(validation_labs, preds_val_reg)
+
+print(conf_matrix_reg)
+
+(specificity_reg = conf_matrix_reg[1, 1]/sum(conf_matrix_reg[1, ]))
+(sensitivity_reg = conf_matrix_reg[2, 2]/sum(conf_matrix_reg[2, ]))
+(accuracy_reg = sum(diag(conf_matrix_reg))/sum(conf_matrix_reg))
+(precision_reg = conf_matrix_reg[2, 2]/sum(conf_matrix_reg[, 2]))
+
+```
+```{r}
+perf_auc <- performance(prediction_glm, measure = "auc")
+perf_auc
+
+auc <- perf_auc@y.values[[1]] # auc score from the performace object
+auc
+```
+
+
+
+```{r}
+## regression using using important attributes
+
+glm_imp <- glm(Target~ payer_code+num_diagnoses+diabetesMed+days_admitted+num_procedures+num_medications, data = train_data, family = binomial) 
+
+summary(glm_imp) # Summary
+```
+# Creating ROC plot to decide the tradeoff between tpr and fpr
+
+```{r}
+prob_train_glm_imp <- predict(glm_imp,train_data[,setdiff(names(train_data), "Target")],
+                     type="response", norm.votes=TRUE)
+summary(prob_train_glm_imp)
+```
+
+```{r}
+#Using the ROCR package create a "prediction()" object
+library(ROCR)
+pred_trn_glm <- prediction(prob_train_glm_imp, train_data$Target)
+
+perf_glm_imp<- performance(pred_trn_glm, measure = "tpr", x.measure = "fpr") # Extracting performance measures (TPR and FPR)
+
+plot(perf_glm_imp, col=rainbow(10), colorize = T, print.cutoffs.at = seq(0,1,0.05)) # PLotting ROC curve
+
+# choosing a cut-off value of 0.35. observations with cut-off value greater than 0.35 is
+# classified as readmit 
+preds_trn_glm <- ifelse(prob_train_glm_imp > 0.38, "1", "0")
+
+
+CM_trn_glm = table(train_target, preds_trn_glm)
+
+print(CM_trn_glm)
+
+#printing area under curve
+
+perf_glm_auc <- performance(pred_trn_glm, measure = "auc")
+perf_glm_auc
+
+auc_glm <- perf_glm_auc@y.values[[1]] # auc score from the performace object
+auc_glm
+```
+```{r}
+(specificity_Trn_glm = CM_trn_glm[1, 1]/sum(CM_trn_glm[1, ]))
+(sensitivity_Trn_glm = CM_trn_glm[2, 2]/sum(CM_trn_glm[2, ]))
+(accuracy_Trn_glm = sum(diag(CM_trn_glm))/sum(CM_trn_glm))
+(precision_Trn_glm = CM_trn_glm[2, 2]/sum(CM_trn_glm[, 2]))
+
+```
+
+
+```{r}
+# choose a cut-off value based on ROC curve. 
+
+# get probabilities for validation data set using the built model
+prob_val_glm <- predict(glm_imp, validation_data, type = "response", norm.votes=TRUE)
+
+# choosing a cut-off value of 0.35. observations with cut-off value greater than 0.35 is
+# classified as readmit 
+preds_val_glm <- ifelse(prob_val_glm > 0.37, "1", "0")
+
+# create confusion matrix based on result in validation data
+validation_target = validation_data$Target
+
+conf_matrix_glm = table(validation_target, preds_val_glm)
+
+print(conf_matrix_glm)
+
+#printing area under curve
+pred_val_glm <- prediction(prob_val_glm, validation_target)
+
+perf_glm_auc <- performance(pred_val_glm, measure = "auc")
+perf_glm_auc
+
+auc_glm <- perf_glm_auc@y.values[[1]] # auc score from the performace object
+auc_glm
+```
+```{r}
+(specificity_val_glm = conf_matrix_glm[1, 1]/sum(conf_matrix_glm[1, ]))
+(sensitivity_val_glm = conf_matrix_glm[2, 2]/sum(conf_matrix_glm[2, ]))
+(accuracy_val_glm = sum(diag(conf_matrix_glm))/sum(conf_matrix_glm))
+(precision_val_glm = conf_matrix_glm[2, 2]/sum(conf_matrix_glm[, 2]))
+```
+
+
+
+### MODEL BUILDING by using Random Forest algorithm
+
+## Model 2
+## Random Forest
+
+```{r}
+library(DMwR)
+library(randomForest)
+library(caret)
+
+
+set.seed(1234)
+
+# RandomForest classification model
+rf_model = randomForest(Target ~ ., data=train_data, keep.forest=TRUE, ntree=100) 
+
+print(rf_model) # Summary of model
+
+rf_model$importance  
+round(importance(rf_model), 2) # Model importance of attributes rounded off to 2 decimals
+
+# Store the impotant attributes in the RF model in decreasing order
+rf_Imp_Attr = data.frame(rf_model$importance)
+rf_Imp_Attr = data.frame(row.names(rf_Imp_Attr),rf_Imp_Attr[,1])
+colnames(rf_Imp_Attr) = c('Attributes', 'Importance')
+rf_Imp_Attr = rf_Imp_Attr[order(rf_Imp_Attr$Importance, decreasing = TRUE),]
+
+varImpPlot(rf_model) # Plotting the important feautures
+
+# Prediction on train data
+pred_Train_rf = predict(rf_model, train_data[,setdiff(names(train_data), "Target")],
+                     type="response", norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy of train data prediction 
+cm_Train_rf = table("actual"= train_data$Target, "predicted" = pred_Train_rf)
+accu_Train= sum(diag(cm_Train_rf))/sum(cm_Train_rf)
+rm(cm_Train_rf)
+
+# Predicton on test Data
+pred_Test_rf = predict(rf_model, validation_data[,setdiff(names(validation_data),"Target")],
+                    type="response", norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy   
+cm_valid = table("actual"=validation_data$Target, "predicted"=pred_Test_rf);
+accu_valid= sum(diag(cm_valid))/sum(cm_valid)
+rm(pred_Test_rf, cm_valid)
+
+accu_Train
+accu_valid
+```
+
+## Model 3
+## Random Forest with the top 14 attributes
+
+```{r}
+# Build randorm forest using top 55%  attributes 
+top_Imp_Attr = as.character(rf_Imp_Attr$Attributes[1:10])
+
+set.seed(123)
+
+# Build the classification model using randomForest
+model_Imp = randomForest(Target~.,data=train_data[,c(top_Imp_Attr,"Target")], 
+                         keep.forest=TRUE,ntree=100) 
+
+print(model_Imp) # Model and Importance of model
+model_Imp$importance  
+
+# Predict on Train data 
+pred_Train = predict(model_Imp, train_data[,top_Imp_Attr],type="response", norm.votes=TRUE)
+
+# Confusion matric and accuracy   
+cm_Train = table("actual" = train_data$Target, "predicted" = pred_Train);
+accu_Train_Imp = sum(diag(cm_Train))/sum(cm_Train)
+rm(pred_Train, cm_Train)
+
+# Predicton Test Data
+pred_Test = predict(model_Imp, validation_data[,top_Imp_Attr],type="response", norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy   
+cm_Test = table("actual" = validation_data$Target, "predicted" = pred_Test);
+accu_Test_Imp = sum(diag(cm_Test))/sum(cm_Test)
+rm(pred_Test, cm_Test)
+
+accu_Train
+accu_valid
+accu_Train_Imp
+accu_Test_Imp
+```
+# Accuracy on validation data  = 72.53 %
+
+
+#Select mtry value with minimum out of bag(OOB) error
+
+```{r}
+mtry <- tuneRF(train_data[-5],train_data$Target, ntreeTry=100,
+               stepFactor=1.5,improve=0.01, trace=TRUE, plot=TRUE) #train_data[-21] - Drop ExtraTime
+best.m <- mtry[mtry[, 2] == min(mtry[, 2]), 1]
+print(mtry)
+print(best.m)
+
+
+```
+Best M is obtained as 2 with 26.67% OOB
+
+## Model 4
+## Random Forest with the best mtry = 2
+
+```{r}
+#Build Model with best mtry again - 
+set.seed(123)
+rf <- randomForest(Target~.,data=train_data, mtry=best.m, importance=TRUE,ntree=100)
+print(rf)
+
+#Evaluate variable importance
+importance(rf)
+
+# Important attributes
+rf$importance  
+round(importance(rf), 2)   
+
+# Extract and store important variables obtained from the random forest model
+rf_Imp_Attr = data.frame(rf$importance)
+rf_Imp_Attr = data.frame(row.names(rf_Imp_Attr),rf_Imp_Attr[,1])
+colnames(rf_Imp_Attr) = c('Attributes', 'Importance')
+rf_Imp_Attr = rf_Imp_Attr[order(rf_Imp_Attr$Importance, decreasing = TRUE),]
+
+# Predict on Train data 
+pred_Train = predict(rf, train_data[,setdiff(names(train_data), "ExtraTime")],
+                     type="response",norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy   
+cm_Train = table("actual"= train_data$Target, "predicted" = pred_Train);
+accu_Train_mtry = sum(diag(cm_Train))/sum(cm_Train)
+rm(pred_Train, cm_Train)
+
+# Predicton Test Data
+pred_Test_mtry = predict(rf, validation_data[,setdiff(names(validation_data),"ExtraTime")],
+                    type="response", norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy   
+cm_Test = table("actual"=validation_data$Target, "predicted"=pred_Test_mtry);
+accu_Test_mtry= sum(diag(cm_Test))/sum(cm_Test)
+rm(cm_Test)
+
+accu_Train_mtry
+accu_Test_mtry
+```
+
+# Accuracy on validation data  = 73.37 %
+
+## Model 5
+## Random Forest with the best mtry = 2 and top 14 attributes
+
+```{r}
+# Build randorm forest using top 55%  attributes 
+top_Imp_Attr = as.character(rf_Imp_Attr$Attributes[1:10])
+
+set.seed(123)
+
+# Build the classification model using randomForest
+model_Imp = randomForest(Target~.,data=train_data[,c(top_Imp_Attr,"Target")], mtry=best.m,
+                         keep.forest=TRUE,ntree=100) 
+
+print(model_Imp) # Model and Importance of model
+model_Imp$importance  
+
+# Predict on Train data 
+pred_Train = predict(model_Imp, train_data[,top_Imp_Attr],type="response", norm.votes=TRUE)
+
+# Confusion matric and accuracy   
+cm_Train = table("actual" = train_data$Target, "predicted" = pred_Train);
+accu_Train_Imp_mtry = sum(diag(cm_Train))/sum(cm_Train)
+rm(pred_Train, cm_Train)
+
+# Predicton Test Data
+pred_Test = predict(model_Imp, validation_data[,top_Imp_Attr],type="response", norm.votes=TRUE)
+
+# Build confusion matrix and find accuracy   
+cm_Test = table("actual" = validation_data$Target, "predicted" = pred_Test);
+accu_Test_Imp_mtry = sum(diag(cm_Test))/sum(cm_Test)
+rm(pred_Test, cm_Test)
+
+accu_Train_Imp_mtry
+accu_Test_Imp_mtry
+```
+
+# Accuracy on validation data  = 73.17 %
+
+# Choosing Model 3 with best mtry = 2
+
+# Confusion Matrix for best model
+```{r}
+confusionMatrix(data = pred_Test_mtry, reference = validation_data$Target, positive = "No")
+```
+
+
+# Prediction on Test Data
+
+```{r}
+pred_Test_actual = predict(rf_model, test_data,type="response", norm.votes=TRUE)
+
+submission_RF_mtry <- data.frame(RowID =test_PID, ExtraTime =pred_Test_actual)
+write.csv(submission_RF_mtry, "submission1_RF_mtry3.csv", row.names = F)
+
+```
+
+```{r}
+
+pred_Test_actual_2 = predict(model_Imp, test_data,type="response", norm.votes=TRUE)
+
+submission_RF_mtry_2 <- data.frame(RowID =test_PID, ExtraTime =pred_Test_actual_2)
+write.csv(submission_RF_mtry_2, "submission1_RF_mtry3_1.csv", row.names = F)
+
+```
+
+
+## Build the Naive Bayes Classifier
+
+* We will use the naiveBayes() function from the e1071 package to build our Naive Bayes Classifier
+
+```{r}
+
+library(e1071)
+
+model_nb <- naiveBayes(train_data$Target~., train_data)
+
+print(model_nb)
+
+```
+
+## Measure the Model Performace on validation data
+
+* Use the confusionMatrix() function from the caret package to look at the various performance metrics
+
+```{r}
+
+preds_nb <- predict(model_nb, validation_data)
+
+
+
+confusionMatrix(data = preds_nb, reference = validation_target)
+#falsy predicted as delay actually it is on time (false negative)
+```
+
+#using top attribute on Naive Baise 
+
+
+```{r}
+
+library(e1071)
+
+model_top_nb <- naiveBayes(train_data$Target~., train_data)
+
+print(model_top_nb)
+
+```
+
+
+## Measure the Model Performace on validation data
+
+* Use the confusionMatrix() function from the caret package to look at the various performance metrics
+
+```{r}
+
+preds_top_nb <- predict(model_top_nb, validation_data)
+
+confusionMatrix(data = preds_top_nb, reference = validation_target)
+#falsy predicted as delay actually it is on time (false negative)
+```
